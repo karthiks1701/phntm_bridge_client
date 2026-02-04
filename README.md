@@ -187,3 +187,29 @@ docker compose up phntm_bridge
 - [Bridge UI](https://docs.phntm.io/bridge/ui/overview) Overview of the customizable web UI
 - [Configure User Input](https://docs.phntm.io/bridge/ui/user-input-and-teleoperation) Use keyboard, touch interface or gamepad to control your robot locally or remotely
 - [Picam ROS2](https://github.com/PhantomCybernetics/picam_ros2) Standalone ROS2 node that converts hardware-encoded H.264 frames into ROS messages
+
+
+
+### Commands for our stuff
+
+```bash
+cd ~
+git clone git@github.com:PhantomCybernetics/phntm_bridge_client.git phntm_bridge_client
+cd phntm_bridge_client
+ROS_DISTRO=humble; docker build -f Dockerfile -t phntm/bridge:$ROS_DISTRO --build-arg ROS_DISTRO=$ROS_DISTRO .
+```
+
+### Register a new Robot on the Bridge Server
+This registers a new robot on the Bridge Server and returns default config file you can edit further. Unique ID_ROBOT and KEY pair are generated in this step.
+```bash
+wget -O ~/phntm_bridge.yaml 'https://register.phntm.io/robot?yaml'
+```
+
+This is will have your robot id etc, it will be created in the home directory. An example is in this repository.
+
+# Launch
+```
+docker compose up phntm_bridge
+```
+
+Then go to the `https://bridge.phntm.io/%YOUR_ID_ROBOT%` robot id would be in the ```phntm_bridge.yaml```. Finally you have to run your stuff in docker and you will be able to see it in the website.  

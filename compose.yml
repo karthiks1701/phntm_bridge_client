@@ -1,0 +1,24 @@
+services:
+  phntm_bridge:
+    image: phntm/bridge:$ROS_DISTRO #if image is built locally
+    container_name: phntm-bridge
+    hostname: phntm-bridge.local
+    restart: unless-stopped # restarts after first run
+    privileged: true # bridge needs this
+    network_mode: host # webrtc needs this
+    ipc: host # bridge needs this to see other local containers
+    # environment:
+    #  - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp # recommended, see the note above!
+    #  - ROS_DOMAIN_ID=22 # if used, specify ROS domain ID here
+    volumes:
+      - ~/phntm_bridge.yaml:/ros2_ws/phntm_bridge_params.yaml # bridge config goes here
+      - ~/phntm_bridge.yaml:/ros2_ws/phntm_agent_params.yaml # agent config goes here, can be shared with the bridge client config
+      - /var/run:/host_run # docker file extractor and wifi control need this
+      - /tmp:/tmp # wifi control needs this
+    devices:
+      - /dev:/dev # LED control needs this
+    # logging:
+    #   driver: local # (optional) persistent logs, read with `docker logs`
+    command:
+      ros2 launch phntm_bridge client_agent_launch.py # launches Bridge Client and Agent together
+```
