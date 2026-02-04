@@ -207,9 +207,9 @@ wget -O ~/phntm_bridge.yaml 'https://register.phntm.io/robot?yaml'
 
 This is will have your robot id etc, it will be created in the home directory. An example is in this repository.
 
-# Launch
+### Launch
 ```
 docker compose up phntm_bridge
 ```
 
-Then go to the `https://bridge.phntm.io/%YOUR_ID_ROBOT%` robot id would be in the ```phntm_bridge.yaml```. Finally you have to run your stuff in docker and you will be able to see it in the website.  
+Then go to the `https://bridge.phntm.io/%YOUR_ID_ROBOT%` robot id would be in the ```phntm_bridge.yaml```. Finally you have to run your stuff in a seperate docker and you will be able to see it in the website.  
