@@ -205,7 +205,7 @@ This registers a new robot on the Bridge Server and returns default config file 
 wget -O ~/phntm_bridge.yaml 'https://register.phntm.io/robot?yaml'
 ```
 
-This is will have your robot id etc, it will be created in the home directory. An example is in this repository.
+This will have your robot id etc, it will be created in the home directory. An example is in this repository.
 
 ### Launch
 ```
