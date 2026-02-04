@@ -190,7 +190,7 @@ docker compose up phntm_bridge
 
 
 
-### Commands for our stuff
+## Commands for our stuff
 
 ```bash
 cd ~
