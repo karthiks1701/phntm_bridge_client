@@ -165,6 +165,41 @@ docker compose up phntm_bridge # launches Bridge Client & Agent in one container
 ### Open the Web UI
 Navigate to `https://bridge.phntm.io/%YOUR_ID_ROBOT%` in a web browser. The exact link can be found at the top of the generated Bridge config file (e.g. your `~/phntm_bridge.yaml`). If you provided maintainer's e-mail in the config, it will be also e-mailed to you for your reference after the first Bridge Client launch.
 
+## Chat Interface Setup
+
+The bridge includes custom chat widgets for Spot, Drone, and Operator entities.
+
+### Prerequisites
+- An HTTPS server running on your network to serve the widget files
+- Network connectivity between your robot and the server
+
+### Setup Steps
+
+1. **Start the widget server:**
+   - The chat widget server is included in `docker-compose.override.yml`
+   - It serves HTTP on port 3080 and HTTPS on port 3443
+   - Starts automatically with `docker compose up`
+
+2. **Configure phntm_bridge.yaml:**
+   - Update the `ui_custom_includes_js` URLs with your server's IP address (port 3080 for HTTP)
+   - Update the `ui_custom_includes_css` URL similarly
+   - Configure the chat topic paths under `chat_spot`, `chat_drone`, and `chat_operator`
+
+3. **Restart the bridge:**
+   ```bash
+   docker restart phntm-bridge
+   ```
+
+4. **Access the widgets:**
+   - Open `https://bridge.phntm.io/%YOUR_ID_ROBOT%` in your browser
+   - Hard refresh (`Ctrl+Shift+R` or `Cmd+Shift+R`)
+   - Chat widgets appear in the Widgets menu
+
+5. **Publish chat messages:**
+   - Widgets listen on ROS2 topics (default: `/spot/chat`, `/drone/chat`, `/operator/chat`)
+   - Publish `std_msgs/msg/String` messages to these topics
+   - Messages appear in the corresponding widget's chat panel
+
 ## Upgrading
 ```bash
 # Remove previous version
