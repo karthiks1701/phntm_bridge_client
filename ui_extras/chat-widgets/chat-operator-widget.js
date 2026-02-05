@@ -16,6 +16,10 @@ export class ChatOperatorWidget extends CompositePanelWidgetBase {
         // Chat history storage
         this.messages = [];
         this.maxMessages = 100;
+        this.storageKey = 'chat_operator_messages';
+        
+        // Load previous chat history
+        this.loadMessagesFromStorage();
 
         // Create UI elements
         this.container_el = $('<div class="chat-container"></div>');
@@ -27,6 +31,9 @@ export class ChatOperatorWidget extends CompositePanelWidgetBase {
         this.input_container_el.append(this.input_el, this.send_btn);
         this.container_el.append(this.messages_el, this.input_container_el);
         this.widget_el.append(this.container_el);
+
+        // Restore chat history to UI
+        this.restoreMessagesToUI();
 
         // Set up topic source for receiving messages
         this.sources.add(
@@ -48,8 +55,10 @@ export class ChatOperatorWidget extends CompositePanelWidgetBase {
             }
         });
 
-        // Add welcome message
-        this.addMessage('system', 'Connected to Operator chat interface');
+        // Add welcome message only if no history exists
+        if (this.messages.length === 0) {
+            this.addMessage('system', 'Connected to Operator chat interface');
+        }
     }
 
     onChatMessage(topic, msg) {
@@ -67,6 +76,9 @@ export class ChatOperatorWidget extends CompositePanelWidgetBase {
         if (this.messages.length > this.maxMessages) {
             this.messages.shift();
         }
+
+        // Save to localStorage
+        this.saveMessagesToStorage();
 
         const senderClass = sender === 'user' ? 'user-message' : 
                            sender === 'operator' ? 'bot-message' : 'system-message';
@@ -102,6 +114,41 @@ export class ChatOperatorWidget extends CompositePanelWidgetBase {
         return div.innerHTML;
     }
 
+    saveMessagesToStorage() {
+        try {
+            localStorage.setItem(this.storageKey, JSON.stringify(this.messages));
+        } catch (e) {
+            console.warn('Failed to save chat history to localStorage:', e);
+        }
+    }
+
+    loadMessagesFromStorage() {
+        try {
+            const stored = localStorage.getItem(this.storageKey);
+            if (stored) {
+                this.messages = JSON.parse(stored);
+            }
+        } catch (e) {
+            console.warn('Failed to load chat history from localStorage:', e);
+        }
+    }
+
+    restoreMessagesToUI() {
+        for (const message of this.messages) {
+            const senderClass = message.sender === 'user' ? 'user-message' : 
+                               message.sender === 'operator' ? 'bot-message' : 'system-message';
+            
+            const msg_el = $(`<div class="chat-message ${senderClass}">
+                <span class="message-time">${this.escapeHtml(message.timestamp)}</span>
+                <span class="message-sender">${this.escapeHtml(message.sender)}:</span>
+                <span class="message-text">${this.escapeHtml(message.text)}</span>
+            </div>`);
+            
+            this.messages_el.append(msg_el);
+        }
+        this.messages_el.scrollTop(this.messages_el[0].scrollHeight);
+    }
+
     setupMenu(menu_els) {
         super.setupMenu(menu_els);
 
@@ -121,6 +168,7 @@ export class ChatOperatorWidget extends CompositePanelWidgetBase {
     clearChat() {
         this.messages = [];
         this.messages_el.empty();
+        this.saveMessagesToStorage();
         this.addMessage('system', 'Chat cleared');
     }
 
