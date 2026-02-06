@@ -27,6 +27,26 @@ Comes with Docker Container control for the host machine, CPU and Wi-Fi monitori
 ## Architecture
 ![Infrastructure map](https://raw.githubusercontent.com/PhantomCybernetics/phntm_bridge_docs/refs/heads/main/img/Architecture_Client.svg)
 
+## Quick Start
+
+The fastest way to get started is to use the automated setup script:
+
+```bash
+cd ~/phntm_bridge_client
+./setup.sh
+```
+
+The setup script will:
+1. ✅ Check Docker and Docker Compose installation
+2. ✅ Register your robot with the Bridge Server
+3. ✅ Build the Docker image
+4. ✅ Start the services
+5. ✅ Provide you with your unique Bridge URL
+
+**That's it!** Once complete, open `https://bridge.phntm.io/%YOUR_ID_ROBOT%` in your browser.
+
+---
+
 ## Install
 
 ### Make sure your root SSL Certificates are up to date
@@ -242,31 +262,40 @@ docker compose up phntm_bridge
 
 ## Commands for local development
 
+### Automated Setup (Recommended)
+The easiest way to get started is to use the setup script:
+
+```bash
+cd ~/phntm_bridge_client
+./setup.sh
+```
+
+### Manual Setup
+If you prefer to set up manually, follow these steps:
+
 ```bash
 cd ~
 git clone git@github.com:PhantomCybernetics/phntm_bridge_client.git phntm_bridge_client
 cd phntm_bridge_client
 ```
 
-### Build the Docker image locally
+**Build the Docker image locally**
 ```bash
 ROS_DISTRO=humble docker compose build
 ```
 
-### Register a new Robot on the Bridge Server
-This registers a new robot on the Bridge Server and returns a default config file you can edit further. Unique ID_ROBOT and KEY pair are generated in this step.
+**Register a new Robot on the Bridge Server**
 ```bash
 wget -O ~/phntm_bridge.yaml 'https://register.phntm.io/robot?yaml'
 ```
 
-### Launch the bridge
+**Launch the bridge**
 ```bash
 docker compose up phntm_bridge
 ```
 
 The bridge will automatically:
 - Start the ROS2 bridge client and agent
-- Launch the optional Python chat interface node
 - Start the Node.js chat widgets server on `http://localhost:3080`
 
 Then navigate to `https://bridge.phntm.io/%YOUR_ID_ROBOT%` in your browser (ID from phntm_bridge.yaml).  
