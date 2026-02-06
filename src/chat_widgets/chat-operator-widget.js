@@ -9,9 +9,6 @@ export class ChatOperatorWidget extends CompositePanelWidgetBase {
 
     constructor(panel) {
         super(panel, 'chat-operator');
-
-        // Get custom config if available
-        let default_chat_topic = this.client.getConfigParam('chat_operator.topic') || '/operator/chat';
         
         // Chat history storage
         this.messages = [];
@@ -35,17 +32,6 @@ export class ChatOperatorWidget extends CompositePanelWidgetBase {
         // Restore chat history to UI
         this.restoreMessagesToUI();
 
-        // Set up topic source for receiving messages
-        this.sources.add(
-            "std_msgs/msg/String",
-            "Chat messages from Operator",
-            default_chat_topic,
-            1,
-            (topic, msg) => this.onChatMessage(topic, msg),
-        );
-
-        this.sources.loadAssignedTopicsFromPanelVars();
-
         // Bind events
         let that = this;
         this.send_btn.click(() => that.sendMessage());
@@ -59,13 +45,6 @@ export class ChatOperatorWidget extends CompositePanelWidgetBase {
         if (this.messages.length === 0) {
             this.addMessage('system', 'Connected to Operator chat interface');
         }
-    }
-
-    onChatMessage(topic, msg) {
-        if (this.panel.paused) return;
-        this.panel.updateFps();
-        
-        this.addMessage('operator', msg.data);
     }
 
     addMessage(sender, text) {
@@ -99,13 +78,6 @@ export class ChatOperatorWidget extends CompositePanelWidgetBase {
 
         this.addMessage('user', text);
         this.input_el.val('');
-
-        // Send message via data channel if available
-        const topics = this.sources.getAssignedTopics();
-        if (topics.length > 0) {
-            const topic = topics[0];
-            this.client.sendTopicData(topic, { data: text });
-        }
     }
 
     escapeHtml(text) {

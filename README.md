@@ -172,30 +172,12 @@ The bridge includes custom chat widgets for Spot, Drone, and Operator entities. 
 
 ### Features
 - Persistent chat history stored in browser localStorage
-- Real-time bidirectional messaging via ROS2 topics
 - Three separate chat streams (Spot, Drone, Operator)
-- Optional Python chat interface node for message logging/processing
+- Manual message entry with real-time updates
 
 ### Configuration
 
-1. **Disable/Enable chat interface node (optional):**
-   - By default, the Python chat interface node launches automatically
-   - To disable: `docker compose up phntm_bridge -e ENABLE_CHAT_INTERFACE=false` 
-   - Or update `launch/client_agent_launch.py` with `enable_chat_interface:=false`
-
-2. **Configure chat topics in phntm_bridge.yaml:**
-   ```yaml
-   chat_spot:
-     topic: /spot/chat
-   chat_drone:
-     topic: /drone/chat
-   chat_operator:
-     topic: /operator/chat
-   ```
-
-3. **Customize widget server port (if needed):**
-   - Edit Dockerfile entrypoint or set environment variables in docker-compose.override.yml
-   - Default: `http://localhost:3080/chat-widgets/`
+The chat widgets are automatically served from the integrated Node.js server on `http://localhost:3080`. No additional configuration is required.
 
 ### Usage
 
@@ -215,18 +197,6 @@ The bridge includes custom chat widgets for Spot, Drone, and Operator entities. 
    ```bash
    docker logs phntm-bridge | grep -i "chat.*server"
    # Look for: "Chat server started with PID"
-   ```
-
-4. **Publish chat messages from ROS2:**
-   ```bash
-   ros2 topic pub /spot/chat std_msgs/msg/String "data: 'Hello from Spot'"
-   ros2 topic pub /drone/chat std_msgs/msg/String "data: 'Hello from Drone'"
-   ros2 topic pub /operator/chat std_msgs/msg/String "data: 'Hello from Operator'"
-   ```
-
-5. **Subscribe to chat messages:**
-   ```bash
-   ros2 topic echo /spot/chat
    ```
 
 ### Troubleshooting Chat Widgets
