@@ -14,6 +14,7 @@ Comes with Docker Container control for the host machine, CPU and Wi-Fi monitori
 - Reliable ROS2 Service calls via Socket.io
 - ROS2 runtime Parameneters read/write API
 - Extra ROS2 packages can be easily included for custom message and service type support
+- **Integrated Chat Widgets** – Real-time communication via built-in Spot, Drone, and Operator chat interfaces (persistent message history)
 - Robot's Wi-Fi signal monitoring, scan & roaming (via Agent, requires wpa_supplicant on the host machine)
 - File retreival from any running Docker container (such as URDF meshes, via Agent) 
 - System load and Docker stats monitoring (via Agent)
@@ -167,38 +168,82 @@ Navigate to `https://bridge.phntm.io/%YOUR_ID_ROBOT%` in a web browser. The exac
 
 ## Chat Interface Setup
 
-The bridge includes custom chat widgets for Spot, Drone, and Operator entities.
+The bridge includes custom chat widgets for Spot, Drone, and Operator entities. These are now integrated directly into the main container.
 
-### Prerequisites
-- An HTTPS server running on your network to serve the widget files
-- Network connectivity between your robot and the server
+### Features
+- Persistent chat history stored in browser localStorage
+- Real-time bidirectional messaging via ROS2 topics
+- Three separate chat streams (Spot, Drone, Operator)
+- Optional Python chat interface node for message logging/processing
 
-### Setup Steps
+### Configuration
 
-1. **Start the widget server:**
-   - The chat widget server is included in `docker-compose.override.yml`
-   - It serves HTTP on port 3080 and HTTPS on port 3443
-   - Starts automatically with `docker compose up`
+1. **Disable/Enable chat interface node (optional):**
+   - By default, the Python chat interface node launches automatically
+   - To disable: `docker compose up phntm_bridge -e ENABLE_CHAT_INTERFACE=false` 
+   - Or update `launch/client_agent_launch.py` with `enable_chat_interface:=false`
 
-2. **Configure phntm_bridge.yaml:**
-   - Update the `ui_custom_includes_js` URLs with your server's IP address (port 3080 for HTTP)
-   - Update the `ui_custom_includes_css` URL similarly
-   - Configure the chat topic paths under `chat_spot`, `chat_drone`, and `chat_operator`
-
-3. **Restart the bridge:**
-   ```bash
-   docker restart phntm-bridge
+2. **Configure chat topics in phntm_bridge.yaml:**
+   ```yaml
+   chat_spot:
+     topic: /spot/chat
+   chat_drone:
+     topic: /drone/chat
+   chat_operator:
+     topic: /operator/chat
    ```
 
-4. **Access the widgets:**
+3. **Customize widget server port (if needed):**
+   - Edit Dockerfile entrypoint or set environment variables in docker-compose.override.yml
+   - Default: `http://localhost:3080/chat-widgets/`
+
+### Usage
+
+1. **Start the bridge** (chat server starts automatically):
+   ```bash
+   docker compose down        # Stop any previous containers
+   docker compose build       # Build with new consolidated code
+   docker compose up phntm_bridge
+   ```
+
+2. **Access the widgets:**
    - Open `https://bridge.phntm.io/%YOUR_ID_ROBOT%` in your browser
-   - Hard refresh (`Ctrl+Shift+R` or `Cmd+Shift+R`)
+   - **Important:** Hard refresh with `Ctrl+Shift+R` (Windows/Linux) or `Cmd+Shift+R` (Mac) to clear cached config
    - Chat widgets appear in the Widgets menu
 
-5. **Publish chat messages:**
-   - Widgets listen on ROS2 topics (default: `/spot/chat`, `/drone/chat`, `/operator/chat`)
-   - Publish `std_msgs/msg/String` messages to these topics
-   - Messages appear in the corresponding widget's chat panel
+3. **Verify chat server is running:**
+   ```bash
+   docker logs phntm-bridge | grep -i "chat.*server"
+   # Look for: "Chat server started with PID"
+   ```
+
+4. **Publish chat messages from ROS2:**
+   ```bash
+   ros2 topic pub /spot/chat std_msgs/msg/String "data: 'Hello from Spot'"
+   ros2 topic pub /drone/chat std_msgs/msg/String "data: 'Hello from Drone'"
+   ros2 topic pub /operator/chat std_msgs/msg/String "data: 'Hello from Operator'"
+   ```
+
+5. **Subscribe to chat messages:**
+   ```bash
+   ros2 topic echo /spot/chat
+   ```
+
+### Troubleshooting Chat Widgets
+
+**Problem: Browser console errors about connection refused or mixed content**
+
+Solution:
+1. **Hard refresh the browser:** `Ctrl+Shift+R` or `Cmd+Shift+R`
+2. **Check container logs:**
+   ```bash
+   docker logs phntm-bridge
+   ```
+3. **Verify chat server is running inside container:**
+   ```bash
+   docker exec phntm-bridge curl -s http://localhost:3080/health | jq
+   ```
+4. **Check if port 3080 is accessible:** The chat server runs inside the container on `localhost:3080` (accessible from the browser via WebRTC bridge)
 
 ## Upgrading
 ```bash
@@ -225,26 +270,33 @@ docker compose up phntm_bridge
 
 
 
-## Commands for our stuff
+## Commands for local development
 
 ```bash
 cd ~
 git clone git@github.com:PhantomCybernetics/phntm_bridge_client.git phntm_bridge_client
 cd phntm_bridge_client
-ROS_DISTRO=humble; docker build -f Dockerfile -t phntm/bridge:$ROS_DISTRO --build-arg ROS_DISTRO=$ROS_DISTRO .
+```
+
+### Build the Docker image locally
+```bash
+ROS_DISTRO=humble docker compose build
 ```
 
 ### Register a new Robot on the Bridge Server
-This registers a new robot on the Bridge Server and returns default config file you can edit further. Unique ID_ROBOT and KEY pair are generated in this step.
+This registers a new robot on the Bridge Server and returns a default config file you can edit further. Unique ID_ROBOT and KEY pair are generated in this step.
 ```bash
 wget -O ~/phntm_bridge.yaml 'https://register.phntm.io/robot?yaml'
 ```
 
-This will have your robot id etc, it will be created in the home directory. An example is in this repository.
-
-### Launch
-```
+### Launch the bridge
+```bash
 docker compose up phntm_bridge
 ```
 
-Then go to the `https://bridge.phntm.io/%YOUR_ID_ROBOT%` robot id would be in the ```phntm_bridge.yaml```. Finally you have to run your stuff in a seperate docker and you will be able to see it in the website.  
+The bridge will automatically:
+- Start the ROS2 bridge client and agent
+- Launch the optional Python chat interface node
+- Start the Node.js chat widgets server on `http://localhost:3080`
+
+Then navigate to `https://bridge.phntm.io/%YOUR_ID_ROBOT%` in your browser (ID from phntm_bridge.yaml).  

@@ -84,14 +84,15 @@
     enable_docker_control: True # Docker control via Agent
 
     ## Custom UI Extensions - Chat Widgets
-    ## To use these, host the files on an HTTPS server and update the URLs below
+    ## Served locally from the phntm_bridge container on port 3080
+    ## Using protocol-relative URLs to work with both HTTP and HTTPS
     ui_custom_includes_js:
-      - http://192.168.2.14:3080/chat-widgets/chat-spot-widget.js
-      - http://192.168.2.14:3080/chat-widgets/chat-drone-widget.js
-      - http://192.168.2.14:3080/chat-widgets/chat-operator-widget.js
+      - http://localhost:3080/chat-widgets/chat-spot-widget.js
+      - http://localhost:3080/chat-widgets/chat-drone-widget.js
+      - http://localhost:3080/chat-widgets/chat-operator-widget.js
     
     ui_custom_includes_css:
-      - http://192.168.2.14:3080/chat-widgets/chat-widgets.css
+      - http://localhost:3080/chat-widgets/chat-widgets.css
 
     ## Chat widget configuration
     chat_spot:

@@ -19,6 +19,8 @@ def launch_setup(context, *args, **kwargs):
     gdb_debugger = LaunchConfiguration("debugger", default="false").perform(context)
     gdb_server = LaunchConfiguration("gdb_server", default="false").perform(context)
     gdb_server_port = LaunchConfiguration("gdb_server_port", default="3000").perform(context)
+    enable_chat_interface = LaunchConfiguration("enable_chat_interface", default="false").perform(context)
+    
     bridge_launch_prefix = ""
     if gdb_debugger == "true":
        bridge_launch_prefix = "gdb -ex run --args"
@@ -47,7 +49,17 @@ def launch_setup(context, *args, **kwargs):
         parameters=[agent_config]
     )
     
-    return [
+    # Conditionally include chat interface node
+    chat_interface_node = None
+    if enable_chat_interface == "true":
+        chat_interface_node = Node(
+            package='phntm_bridge',
+            executable='chat_interface_node.py',
+            output='screen',
+            emulate_tty=True,
+        )
+    
+    launch_description = [
         bridge_node,
         agent_node,
        
@@ -61,6 +73,11 @@ def launch_setup(context, *args, **kwargs):
             )
         )
     ]
+    
+    if chat_interface_node:
+        launch_description.insert(2, chat_interface_node)
+    
+    return launch_description
     
 def generate_launch_description():
 

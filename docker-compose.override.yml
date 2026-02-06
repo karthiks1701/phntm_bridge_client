@@ -1,6 +1,11 @@
 services:
   phntm_bridge:
-    image: ghcr.io/phantomcybernetics/phntm_bridge_client:main-humble
+    image: phntm/bridge:humble
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        ROS_DISTRO: humble
     container_name: phntm-bridge
     hostname: phntm-bridge.local
     restart: unless-stopped
@@ -15,14 +20,3 @@ services:
     devices:
       - /dev:/dev
     command: ros2 launch phntm_bridge client_agent_launch.py
-
-  # Chat widgets HTTPS server
-  chat_widgets_server:
-    image: node:18-alpine
-    container_name: chat-widgets-server
-    restart: unless-stopped
-    network_mode: host
-    volumes:
-      - ./ui_extras:/app
-    working_dir: /app
-    command: sh -c "npm install && node server.js"
