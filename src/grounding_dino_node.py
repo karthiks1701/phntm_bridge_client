@@ -25,6 +25,7 @@ import re
 import os
 import time
 import tempfile
+from datetime import datetime
 import numpy as np
 import cv2
 
@@ -45,6 +46,12 @@ RESULTS_DIRS = {
     'spot': '/tmp/dino_results_spot',
     'drone': '/tmp/dino_results_drone',
     'operator': '/tmp/dino_results_operator',
+}
+
+IMAGES_DIRS = {
+    'spot': '/ros2_ws/detections/spot',
+    'drone': '/ros2_ws/detections/drone',
+    'operator': '/ros2_ws/detections/operator',
 }
 
 CAM_RELAY_DIR = '/dev/shm/cam_relay'
@@ -107,6 +114,8 @@ class GroundingDinoNode(Node):
         # Ensure output directories exist
         for results_dir in RESULTS_DIRS.values():
             os.makedirs(results_dir, exist_ok=True)
+        for images_dir in IMAGES_DIRS.values():
+            os.makedirs(images_dir, exist_ok=True)
         os.makedirs(CAM_RELAY_DIR, exist_ok=True)
 
         # Subscribe to entity-specific camera topics if configured
@@ -387,13 +396,33 @@ class GroundingDinoNode(Node):
         if not target_entities and camera_entity:
             target_entities.add(camera_entity)
 
-        # Write result to each target entity's results directory
+        # Write result to each target entity's results directory and save image
         for entity in target_entities:
             self._write_result_file(result, entity)
+            self._save_detection_image(annotated, detections, entity)
 
         det_summary = ', '.join(f'{d["label"]}({d["confidence"]})' for d in detections)
         entities_str = ', '.join(sorted(target_entities))
         self.get_logger().info(f'Detection on {topic} -> [{entities_str}]: {det_summary}')
+
+    def _save_detection_image(self, annotated_image, detections, entity):
+        """Save annotated detection image to the entity's images directory."""
+        images_dir = IMAGES_DIRS[entity]
+        try:
+            timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+            # Build label part: label1(score%)_label2(score%)
+            labels_part = '_'.join(
+                f'{d["label"]}({int(d["confidence"] * 100)}%)'
+                for d in detections
+            )
+            # Sanitize for filesystem
+            labels_part = re.sub(r'[^\w%()\-]', '_', labels_part)[:200]
+            filename = f'{timestamp}_{labels_part}.jpg'
+            filepath = os.path.join(images_dir, filename)
+            cv2.imwrite(filepath, annotated_image, [cv2.IMWRITE_JPEG_QUALITY, 90])
+            self.get_logger().info(f'Saved detection image: {filepath}')
+        except Exception as e:
+            self.get_logger().warn(f'Failed to save detection image for {entity}: {e}')
 
     def _write_result_file(self, result, entity):
         """Atomically write a detection result to the entity's results directory."""

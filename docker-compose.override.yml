@@ -15,6 +15,7 @@ services:
     volumes:
       - ./phntm_bridge.yaml:/ros2_ws/phntm_bridge_params.yaml
       - ./phntm_bridge.yaml:/ros2_ws/phntm_agent_params.yaml
+      - ./detections:/ros2_ws/detections
       - /var/run:/host_run
       - /tmp:/tmp
     devices:
