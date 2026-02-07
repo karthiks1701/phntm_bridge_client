@@ -133,6 +133,12 @@ RUN . /root/ros2_py_venv/bin/activate && \
     pip install empy catkin_pkg numpy lark && \
     deactivate
 
+# Grounding DINO deps (CPU-only PyTorch for zero-shot detection)
+RUN . /root/ros2_py_venv/bin/activate && \
+    pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir transformers opencv-python-headless && \
+    deactivate
+
 # video enc
 RUN apt-get install -y libopencv-dev
 RUN apt-get install -y libavdevice-dev
