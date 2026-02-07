@@ -7,9 +7,13 @@ This node runs on FastDDS (same as C++ bridge) and uses file-based IPC
 to communicate with the Grounding DINO node (which runs on CycloneDDS
 for Gazebo camera access).
 
-File IPC paths:
-  /tmp/dino_prompts.json  - prompts written by this node, read by DINO
-  /tmp/dino_results/      - detection JSONs written by DINO, read by this node
+File IPC paths (per entity):
+  /tmp/dino_prompts_spot.json      - prompts for Spot entity
+  /tmp/dino_prompts_drone.json     - prompts for Drone entity
+  /tmp/dino_prompts_operator.json  - prompts for Operator entity
+  /tmp/dino_results_spot/          - detection results for Spot
+  /tmp/dino_results_drone/         - detection results for Drone
+  /tmp/dino_results_operator/      - detection results for Operator
 """
 
 import rclpy
@@ -23,8 +27,19 @@ import glob
 import tempfile
 
 
-PROMPTS_FILE = '/tmp/dino_prompts.json'
-RESULTS_DIR = '/tmp/dino_results'
+ENTITIES = ['spot', 'drone', 'operator']
+
+PROMPTS_FILES = {
+    'spot': '/tmp/dino_prompts_spot.json',
+    'drone': '/tmp/dino_prompts_drone.json',
+    'operator': '/tmp/dino_prompts_operator.json',
+}
+
+RESULTS_DIRS = {
+    'spot': '/tmp/dino_results_spot',
+    'drone': '/tmp/dino_results_drone',
+    'operator': '/tmp/dino_results_operator',
+}
 
 
 class ChatInterfaceNode(Node):
@@ -43,8 +58,11 @@ class ChatInterfaceNode(Node):
 
         self.get_logger().info(f'Chat Interface Node starting (FastDDS + file IPC)...')
         self.get_logger().info(f'Spot topic: {spot_topic}')
-        self.get_logger().info(f'Prompts file: {PROMPTS_FILE}')
-        self.get_logger().info(f'Results dir: {RESULTS_DIR}')
+        self.get_logger().info(f'Drone topic: {drone_topic}')
+        self.get_logger().info(f'Operator topic: {operator_topic}')
+        for entity in ENTITIES:
+            self.get_logger().info(f'{entity} prompts: {PROMPTS_FILES[entity]}')
+            self.get_logger().info(f'{entity} results: {RESULTS_DIRS[entity]}')
 
         # QoS profile matching C++ bridge (BEST_EFFORT, depth 1)
         bridge_qos = QoSProfile(
@@ -55,9 +73,11 @@ class ChatInterfaceNode(Node):
         )
 
         # Publishers - for sending messages to UI (via FastDDS -> C++ bridge -> WebRTC)
-        self.spot_pub = self.create_publisher(String, spot_topic, bridge_qos)
-        self.drone_pub = self.create_publisher(String, drone_topic, bridge_qos)
-        self.operator_pub = self.create_publisher(String, operator_topic, bridge_qos)
+        self.chat_pubs = {
+            'spot': self.create_publisher(String, spot_topic, bridge_qos),
+            'drone': self.create_publisher(String, drone_topic, bridge_qos),
+            'operator': self.create_publisher(String, operator_topic, bridge_qos),
+        }
 
         # Subscribers - for receiving messages from UI (via WebRTC -> C++ bridge -> FastDDS)
         self.spot_sub = self.create_subscription(
@@ -67,67 +87,71 @@ class ChatInterfaceNode(Node):
         self.operator_sub = self.create_subscription(
             String, operator_topic, self.operator_callback, bridge_qos)
 
-        # Active prompts list (managed via file IPC)
-        self.active_prompts = []
-        self._load_prompts_from_file()
+        # Active prompts per entity (managed via file IPC)
+        self.active_prompts = {entity: [] for entity in ENTITIES}
+        for entity in ENTITIES:
+            self._load_prompts_from_file(entity)
 
-        # Ensure results directory exists
-        os.makedirs(RESULTS_DIR, exist_ok=True)
+        # Ensure results directories exist
+        for results_dir in RESULTS_DIRS.values():
+            os.makedirs(results_dir, exist_ok=True)
 
         # Timer to poll for detection results from DINO node (every 0.5s)
         self.results_timer = self.create_timer(0.5, self.poll_detection_results)
 
         # Send initial greeting
-        self.send_spot_message("Ready to assist Spot operations")
-        self.send_drone_message("Drone systems initialized")
-        self.send_operator_message("Operator interface ready")
+        self._send_message('spot', "Ready to assist Spot operations")
+        self._send_message('drone', "Drone systems initialized")
+        self._send_message('operator', "Operator interface ready")
 
-    def _load_prompts_from_file(self):
-        """Load current prompts from the shared file."""
+    def _load_prompts_from_file(self, entity):
+        """Load current prompts from the entity's shared file."""
+        prompts_file = PROMPTS_FILES[entity]
         try:
-            if os.path.exists(PROMPTS_FILE):
-                with open(PROMPTS_FILE, 'r') as f:
-                    self.active_prompts = json.load(f)
+            if os.path.exists(prompts_file):
+                with open(prompts_file, 'r') as f:
+                    self.active_prompts[entity] = json.load(f)
         except (json.JSONDecodeError, IOError):
-            self.active_prompts = []
+            self.active_prompts[entity] = []
 
-    def _save_prompts_to_file(self):
-        """Atomically write prompts to the shared file."""
+    def _save_prompts_to_file(self, entity):
+        """Atomically write prompts to the entity's shared file."""
+        prompts_file = PROMPTS_FILES[entity]
         try:
             # Write to temp file then rename for atomicity
             fd, tmp_path = tempfile.mkstemp(dir='/tmp', suffix='.json')
             with os.fdopen(fd, 'w') as f:
-                json.dump(self.active_prompts, f)
-            os.replace(tmp_path, PROMPTS_FILE)
+                json.dump(self.active_prompts[entity], f)
+            os.replace(tmp_path, prompts_file)
         except IOError as e:
-            self.get_logger().error(f'Failed to write prompts file: {e}')
+            self.get_logger().error(f'Failed to write prompts file for {entity}: {e}')
 
     def poll_detection_results(self):
-        """Poll /tmp/dino_results/ for detection result files and republish on FastDDS."""
-        try:
-            result_files = sorted(glob.glob(os.path.join(RESULTS_DIR, '*.json')))
-        except OSError:
-            return
-
-        for result_file in result_files:
+        """Poll all entity result directories and forward to matching publisher."""
+        for entity in ENTITIES:
+            results_dir = RESULTS_DIRS[entity]
             try:
-                with open(result_file, 'r') as f:
-                    result_data = f.read()
-                # Remove the file after reading
-                os.unlink(result_file)
-                # Republish on FastDDS /spot/chat so C++ bridge forwards to WebRTC
-                msg = String()
-                msg.data = result_data
-                self.spot_pub.publish(msg)
-                self.get_logger().info(f'Forwarded detection result to /spot/chat')
-            except (IOError, OSError) as e:
-                self.get_logger().warn(f'Error reading result file {result_file}: {e}')
+                result_files = sorted(glob.glob(os.path.join(results_dir, '*.json')))
+            except OSError:
+                continue
 
-    def spot_callback(self, msg):
-        """Handle messages from Spot chat widget (via C++ bridge FastDDS)."""
-        timestamp = datetime.now().strftime('%H:%M:%S')
+            for result_file in result_files:
+                try:
+                    with open(result_file, 'r') as f:
+                        result_data = f.read()
+                    # Remove the file after reading
+                    os.unlink(result_file)
+                    # Republish on the entity's topic so C++ bridge forwards to WebRTC
+                    msg = String()
+                    msg.data = result_data
+                    self.chat_pubs[entity].publish(msg)
+                    self.get_logger().info(f'Forwarded detection result to /{entity}/chat')
+                except (IOError, OSError) as e:
+                    self.get_logger().warn(f'Error reading result file {result_file}: {e}')
 
-        # Try to parse as JSON prompt command from web UI
+    def _handle_prompt_command(self, entity, msg):
+        """Handle prompt add/remove commands from any entity's chat widget.
+        Returns True if the message was a prompt command, False otherwise."""
         try:
             data = json.loads(msg.data)
             msg_type = data.get('type', '')
@@ -135,54 +159,65 @@ class ChatInterfaceNode(Node):
             if msg_type in ('add_prompt', 'remove_prompt'):
                 prompt = data.get('prompt', '').strip()
                 if prompt:
+                    timestamp = datetime.now().strftime('%H:%M:%S')
                     if msg_type == 'add_prompt':
-                        if prompt not in self.active_prompts:
-                            self.active_prompts.append(prompt)
-                            self._save_prompts_to_file()
-                            self.get_logger().info(f'[{timestamp}] Added prompt "{prompt}" -> file IPC')
+                        if prompt not in self.active_prompts[entity]:
+                            self.active_prompts[entity].append(prompt)
+                            self._save_prompts_to_file(entity)
+                            self.get_logger().info(
+                                f'[{timestamp}] {entity}: Added prompt "{prompt}" -> file IPC')
                     else:
-                        if prompt in self.active_prompts:
-                            self.active_prompts.remove(prompt)
-                            self._save_prompts_to_file()
-                            self.get_logger().info(f'[{timestamp}] Removed prompt "{prompt}" -> file IPC')
-                return
+                        if prompt in self.active_prompts[entity]:
+                            self.active_prompts[entity].remove(prompt)
+                            self._save_prompts_to_file(entity)
+                            self.get_logger().info(
+                                f'[{timestamp}] {entity}: Removed prompt "{prompt}" -> file IPC')
+                return True
 
             # Detection results we republished - ignore to avoid echo loop
             if msg_type == 'detection':
-                return
+                return True
         except (json.JSONDecodeError, TypeError):
             pass
 
-        # Regular text message
+        return False
+
+    def spot_callback(self, msg):
+        """Handle messages from Spot chat widget (via C++ bridge FastDDS)."""
+        if self._handle_prompt_command('spot', msg):
+            return
+        timestamp = datetime.now().strftime('%H:%M:%S')
         self.get_logger().info(f'[{timestamp}] Spot: {msg.data}')
 
     def drone_callback(self, msg):
-        """Handle messages from Drone chat widget."""
+        """Handle messages from Drone chat widget (via C++ bridge FastDDS)."""
+        if self._handle_prompt_command('drone', msg):
+            return
         timestamp = datetime.now().strftime('%H:%M:%S')
         self.get_logger().info(f'[{timestamp}] Drone: {msg.data}')
 
     def operator_callback(self, msg):
-        """Handle messages from Operator chat widget."""
+        """Handle messages from Operator chat widget (via C++ bridge FastDDS)."""
+        if self._handle_prompt_command('operator', msg):
+            return
         timestamp = datetime.now().strftime('%H:%M:%S')
         self.get_logger().info(f'[{timestamp}] Operator: {msg.data}')
 
-    def send_spot_message(self, text):
-        """Send a message to the Spot chat widget."""
+    def _send_message(self, entity, text):
+        """Send a message to the specified entity's chat widget."""
         msg = String()
         msg.data = text
-        self.spot_pub.publish(msg)
+        self.chat_pubs[entity].publish(msg)
+
+    # Keep legacy helpers for backward compat if called externally
+    def send_spot_message(self, text):
+        self._send_message('spot', text)
 
     def send_drone_message(self, text):
-        """Send a message to the Drone chat widget."""
-        msg = String()
-        msg.data = text
-        self.drone_pub.publish(msg)
+        self._send_message('drone', text)
 
     def send_operator_message(self, text):
-        """Send a message to the Operator chat widget."""
-        msg = String()
-        msg.data = text
-        self.operator_pub.publish(msg)
+        self._send_message('operator', text)
 
 
 def main():

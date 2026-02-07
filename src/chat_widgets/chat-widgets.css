@@ -256,6 +256,20 @@
     color: #ff3333;
 }
 
+/* Drone prompt chips (yellow/orange theme) */
+.prompt-chip.drone-prompt-chip {
+    background: #4a4a2a;
+    border-color: #8a8a4a;
+    color: #ffddaa;
+}
+
+/* Operator prompt chips (purple theme) */
+.prompt-chip.operator-prompt-chip {
+    background: #4a2a4a;
+    border-color: #8a4a8a;
+    color: #ffaaff;
+}
+
 /* Detection results */
 .detection-message {
     flex-direction: column;

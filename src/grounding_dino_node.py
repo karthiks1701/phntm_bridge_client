@@ -5,9 +5,13 @@ Subscribes to camera image topics (via CycloneDDS for Gazebo access),
 reads detection prompts from file IPC, runs zero-shot object detection,
 and writes annotated results to file IPC.
 
-File IPC paths:
-  /tmp/dino_prompts.json  - prompts written by chat_interface, read by this node
-  /tmp/dino_results/      - detection JSONs written by this node, read by chat_interface
+File IPC paths (per entity):
+  /tmp/dino_prompts_spot.json      - prompts from Spot chat
+  /tmp/dino_prompts_drone.json     - prompts from Drone chat
+  /tmp/dino_prompts_operator.json  - prompts from Operator chat
+  /tmp/dino_results_spot/          - results forwarded to Spot chat
+  /tmp/dino_results_drone/         - results forwarded to Drone chat
+  /tmp/dino_results_operator/      - results forwarded to Operator chat
 """
 
 import rclpy
@@ -29,8 +33,20 @@ from transformers import AutoProcessor, AutoModelForZeroShotObjectDetection
 from PIL import Image as PILImage
 
 
-PROMPTS_FILE = '/tmp/dino_prompts.json'
-RESULTS_DIR = '/tmp/dino_results'
+ENTITIES = ['spot', 'drone', 'operator']
+
+PROMPTS_FILES = {
+    'spot': '/tmp/dino_prompts_spot.json',
+    'drone': '/tmp/dino_prompts_drone.json',
+    'operator': '/tmp/dino_prompts_operator.json',
+}
+
+RESULTS_DIRS = {
+    'spot': '/tmp/dino_results_spot',
+    'drone': '/tmp/dino_results_drone',
+    'operator': '/tmp/dino_results_operator',
+}
+
 CAM_RELAY_DIR = '/dev/shm/cam_relay'
 
 
@@ -42,18 +58,28 @@ class GroundingDinoNode(Node):
         self.declare_parameter('detection_inference_interval_sec', 2.0)
         self.declare_parameter('detection_model_name', 'IDEA-Research/grounding-dino-tiny')
         self.declare_parameter('camera_topic_filter', '')  # regex to include topics; empty = all
+        # Placeholder camera topic params for future per-entity camera support
+        self.declare_parameter('drone_camera_topic', '')   # empty = disabled
+        self.declare_parameter('operator_camera_topic', '')  # empty = disabled
 
         self.confidence_threshold = self.get_parameter('detection_confidence_threshold').value
         self.inference_interval = self.get_parameter('detection_inference_interval_sec').value
         self.model_name = self.get_parameter('detection_model_name').value
         self.camera_topic_filter = self.get_parameter('camera_topic_filter').value
+        self.drone_camera_topic = self.get_parameter('drone_camera_topic').value
+        self.operator_camera_topic = self.get_parameter('operator_camera_topic').value
 
         self.get_logger().info(f'Grounding DINO Node starting (CycloneDDS + file IPC)...')
         self.get_logger().info(f'Model: {self.model_name}')
         self.get_logger().info(f'Confidence threshold: {self.confidence_threshold}')
         self.get_logger().info(f'Inference interval: {self.inference_interval}s')
-        self.get_logger().info(f'Prompts file: {PROMPTS_FILE}')
-        self.get_logger().info(f'Results dir: {RESULTS_DIR}')
+        for entity in ENTITIES:
+            self.get_logger().info(f'{entity} prompts: {PROMPTS_FILES[entity]}')
+            self.get_logger().info(f'{entity} results: {RESULTS_DIRS[entity]}')
+        if self.drone_camera_topic:
+            self.get_logger().info(f'Drone camera: {self.drone_camera_topic}')
+        if self.operator_camera_topic:
+            self.get_logger().info(f'Operator camera: {self.operator_camera_topic}')
 
         # Load model
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -64,26 +90,33 @@ class GroundingDinoNode(Node):
         self.model = AutoModelForZeroShotObjectDetection.from_pretrained(self.model_name).to(self.device)
         self.get_logger().info('Model loaded successfully')
 
-        # Active detection prompts (read from file)
-        self.active_prompts = []
+        # Active detection prompts per entity (read from files)
+        self.active_prompts = {entity: [] for entity in ENTITIES}
 
         # Camera subscriptions: topic -> subscription
         self.camera_subs = {}
         # Latest frames: topic -> (cv2 image, header)
         self.latest_frames = {}
+        # Camera topic -> entity mapping (for per-entity camera support)
+        self.camera_entity_map = {}
 
         # Exclude known non-camera topics
-        self.excluded_topics = {'/spot/chat', '/spot/detection_prompts', '/detection_annotated'}
+        self.excluded_topics = {'/spot/chat', '/drone/chat', '/operator/chat',
+                                '/spot/detection_prompts', '/detection_annotated'}
 
         # Ensure output directories exist
-        os.makedirs(RESULTS_DIR, exist_ok=True)
+        for results_dir in RESULTS_DIRS.values():
+            os.makedirs(results_dir, exist_ok=True)
         os.makedirs(CAM_RELAY_DIR, exist_ok=True)
+
+        # Subscribe to entity-specific camera topics if configured
+        self._subscribe_entity_cameras()
 
         # Timer for topic discovery (camera topics via CycloneDDS)
         self.discovery_timer = self.create_timer(5.0, self.discover_camera_topics)
 
-        # Timer for reading prompts from file
-        self.prompts_timer = self.create_timer(1.0, self.poll_prompts_file)
+        # Timer for reading prompts from files
+        self.prompts_timer = self.create_timer(1.0, self.poll_prompts_files)
 
         # Timer for inference
         self.inference_timer = self.create_timer(self.inference_interval, self.run_inference)
@@ -93,28 +126,52 @@ class GroundingDinoNode(Node):
 
         self.get_logger().info('Grounding DINO Node ready')
 
-    def poll_prompts_file(self):
-        """Read active prompts from the shared file (written by chat_interface)."""
-        try:
-            if not os.path.exists(PROMPTS_FILE):
-                if self.active_prompts:
-                    self.active_prompts = []
-                    self.get_logger().info('Prompts file removed, cleared all prompts')
-                return
+    def _subscribe_entity_cameras(self):
+        """Subscribe to explicitly configured per-entity camera topics."""
+        entity_topics = {
+            'drone': self.drone_camera_topic,
+            'operator': self.operator_camera_topic,
+        }
+        for entity, topic in entity_topics.items():
+            if not topic:
+                continue
+            if topic in self.camera_subs:
+                continue
+            self.get_logger().info(f'Subscribing to {entity} camera: {topic}')
+            sub = self.create_subscription(
+                Image, topic,
+                lambda msg, t=topic: self.image_callback(t, msg),
+                1)
+            self.camera_subs[topic] = sub
+            self.camera_entity_map[topic] = entity
 
-            with open(PROMPTS_FILE, 'r') as f:
-                new_prompts = json.load(f)
+    def poll_prompts_files(self):
+        """Read active prompts from all entity prompt files."""
+        for entity in ENTITIES:
+            prompts_file = PROMPTS_FILES[entity]
+            try:
+                if not os.path.exists(prompts_file):
+                    if self.active_prompts[entity]:
+                        self.active_prompts[entity] = []
+                        self.get_logger().info(
+                            f'{entity} prompts file removed, cleared all prompts')
+                    continue
 
-            if new_prompts != self.active_prompts:
-                added = set(new_prompts) - set(self.active_prompts)
-                removed = set(self.active_prompts) - set(new_prompts)
-                self.active_prompts = new_prompts
-                if added:
-                    self.get_logger().info(f'Prompts added from file: {added} (total: {len(self.active_prompts)})')
-                if removed:
-                    self.get_logger().info(f'Prompts removed from file: {removed} (total: {len(self.active_prompts)})')
-        except (json.JSONDecodeError, IOError) as e:
-            self.get_logger().warn(f'Error reading prompts file: {e}')
+                with open(prompts_file, 'r') as f:
+                    new_prompts = json.load(f)
+
+                if new_prompts != self.active_prompts[entity]:
+                    added = set(new_prompts) - set(self.active_prompts[entity])
+                    removed = set(self.active_prompts[entity]) - set(new_prompts)
+                    self.active_prompts[entity] = new_prompts
+                    if added:
+                        self.get_logger().info(
+                            f'{entity} prompts added: {added} (total: {len(new_prompts)})')
+                    if removed:
+                        self.get_logger().info(
+                            f'{entity} prompts removed: {removed} (total: {len(new_prompts)})')
+            except (json.JSONDecodeError, IOError) as e:
+                self.get_logger().warn(f'Error reading {entity} prompts file: {e}')
 
     def discover_camera_topics(self):
         topic_list = self.get_topic_names_and_types()
@@ -138,6 +195,9 @@ class GroundingDinoNode(Node):
                 lambda msg, t=topic_name: self.image_callback(t, msg),
                 1)
             self.camera_subs[topic_name] = sub
+            # Auto-discovered cameras default to spot entity
+            if topic_name not in self.camera_entity_map:
+                self.camera_entity_map[topic_name] = 'spot'
 
         # Write topic name mapping for camera relay publisher
         if self.camera_subs:
@@ -215,22 +275,35 @@ class GroundingDinoNode(Node):
         except Exception:
             pass  # non-critical, don't spam logs
 
+    def _get_all_prompts_merged(self):
+        """Return union of all entity prompts and a mapping of prompt -> set of entities."""
+        prompt_entity_map = {}  # prompt_text -> set of entity names
+        all_prompts = []
+        for entity in ENTITIES:
+            for prompt in self.active_prompts[entity]:
+                if prompt not in prompt_entity_map:
+                    prompt_entity_map[prompt] = set()
+                    all_prompts.append(prompt)
+                prompt_entity_map[prompt].add(entity)
+        return all_prompts, prompt_entity_map
+
     def run_inference(self):
-        if not self.active_prompts:
+        all_prompts, prompt_entity_map = self._get_all_prompts_merged()
+        if not all_prompts:
             return
         if not self.latest_frames:
             return
 
-        # Build text prompt: all active prompts joined by ". "
-        text_prompt = '. '.join(self.active_prompts) + '.'
+        # Build text prompt: all unique prompts joined by ". "
+        text_prompt = '. '.join(all_prompts) + '.'
 
         for topic, (cv_image, header) in list(self.latest_frames.items()):
             try:
-                self._process_frame(topic, cv_image, text_prompt)
+                self._process_frame(topic, cv_image, text_prompt, prompt_entity_map)
             except Exception as e:
                 self.get_logger().error(f'Inference error on {topic}: {e}')
 
-    def _process_frame(self, topic, cv_image, text_prompt):
+    def _process_frame(self, topic, cv_image, text_prompt, prompt_entity_map):
         # Convert BGR to RGB PIL image
         rgb_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
         pil_image = PILImage.fromarray(rgb_image)
@@ -291,24 +364,50 @@ class GroundingDinoNode(Node):
             'detections': detections
         }
 
-        # Write result to file IPC (chat_interface will pick it up and publish on FastDDS)
-        self._write_result_file(result)
+        # Determine which entities should receive this result based on:
+        # 1. Camera-entity mapping (if this camera belongs to a specific entity)
+        # 2. Which entities have prompts matching the detected labels
+        camera_entity = self.camera_entity_map.get(topic)
+
+        # Collect entities that should receive results from this frame
+        target_entities = set()
+
+        for det in detections:
+            det_label = det['label'].lower().strip()
+            # Check which entity prompts match this detection
+            for prompt, entities in prompt_entity_map.items():
+                if prompt.lower().strip() in det_label or det_label in prompt.lower().strip():
+                    # If camera is entity-specific, only send to that entity
+                    if camera_entity and camera_entity != 'spot':
+                        target_entities.add(camera_entity)
+                    else:
+                        target_entities.update(entities)
+
+        # Fallback: if no specific match, send to camera's entity
+        if not target_entities and camera_entity:
+            target_entities.add(camera_entity)
+
+        # Write result to each target entity's results directory
+        for entity in target_entities:
+            self._write_result_file(result, entity)
 
         det_summary = ', '.join(f'{d["label"]}({d["confidence"]})' for d in detections)
-        self.get_logger().info(f'Detection on {topic}: {det_summary}')
+        entities_str = ', '.join(sorted(target_entities))
+        self.get_logger().info(f'Detection on {topic} -> [{entities_str}]: {det_summary}')
 
-    def _write_result_file(self, result):
-        """Atomically write a detection result to /tmp/dino_results/."""
+    def _write_result_file(self, result, entity):
+        """Atomically write a detection result to the entity's results directory."""
+        results_dir = RESULTS_DIRS[entity]
         try:
             self._result_counter += 1
             filename = f'{time.time_ns()}_{self._result_counter}.json'
-            tmp_path = os.path.join(RESULTS_DIR, f'.tmp_{filename}')
-            final_path = os.path.join(RESULTS_DIR, filename)
+            tmp_path = os.path.join(results_dir, f'.tmp_{filename}')
+            final_path = os.path.join(results_dir, filename)
             with open(tmp_path, 'w') as f:
                 json.dump(result, f)
             os.replace(tmp_path, final_path)
         except IOError as e:
-            self.get_logger().error(f'Failed to write result file: {e}')
+            self.get_logger().error(f'Failed to write result file for {entity}: {e}')
 
 
 def main():

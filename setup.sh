@@ -42,6 +42,10 @@ check_command() {
     return 0
 }
 
+# Get script directory
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$SCRIPT_DIR"
+
 # Start setup
 print_header "Phantom Bridge Client - Setup Wizard"
 
@@ -55,12 +59,33 @@ if ! check_command docker; then
 fi
 print_success "Docker is installed"
 
-if ! check_command docker-compose; then
+# Check for Docker Compose (plugin first, then standalone)
+DOCKER_COMPOSE=""
+if docker compose version &> /dev/null; then
+    DOCKER_COMPOSE="docker compose"
+    print_success "Docker Compose (plugin) is installed"
+elif check_command docker-compose; then
+    DOCKER_COMPOSE="docker-compose"
+    print_success "Docker Compose (standalone) is installed"
+else
     print_error "Docker Compose is not installed"
-    echo "Please install Docker Compose from: https://docs.docker.com/compose/install/"
+    echo "Please install Docker Compose: https://docs.docker.com/compose/install/"
     exit 1
 fi
-print_success "Docker Compose is installed"
+
+# Check for wget or curl (needed for robot registration)
+if check_command wget; then
+    DOWNLOADER="wget"
+    print_success "wget is available"
+elif check_command curl; then
+    DOWNLOADER="curl"
+    print_success "curl is available"
+else
+    print_error "Neither wget nor curl is installed"
+    echo "Please install wget or curl:"
+    echo "  sudo apt install wget"
+    exit 1
+fi
 
 # Check if user can run Docker
 if ! docker ps &> /dev/null; then
@@ -71,10 +96,6 @@ if ! docker ps &> /dev/null; then
 fi
 print_success "Docker is accessible"
 
-# Get script directory
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-cd "$SCRIPT_DIR"
-
 print_header "Step 1: Robot Registration"
 
 # Check if config file exists
@@ -84,14 +105,22 @@ if [ -f "$HOME/phntm_bridge.yaml" ]; then
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         echo "Downloading new config from Bridge Server..."
-        wget -O "$HOME/phntm_bridge.yaml" 'https://register.phntm.io/robot?yaml'
+        if [ "$DOWNLOADER" = "wget" ]; then
+            wget -O "$HOME/phntm_bridge.yaml" 'https://register.phntm.io/robot?yaml'
+        else
+            curl -fSL -o "$HOME/phntm_bridge.yaml" 'https://register.phntm.io/robot?yaml'
+        fi
         print_success "New robot registered and config saved to ~/phntm_bridge.yaml"
     else
         print_info "Using existing config at ~/phntm_bridge.yaml"
     fi
 else
     print_info "No config file found. Registering new robot with Bridge Server..."
-    wget -O "$HOME/phntm_bridge.yaml" 'https://register.phntm.io/robot?yaml'
+    if [ "$DOWNLOADER" = "wget" ]; then
+        wget -O "$HOME/phntm_bridge.yaml" 'https://register.phntm.io/robot?yaml'
+    else
+        curl -fSL -o "$HOME/phntm_bridge.yaml" 'https://register.phntm.io/robot?yaml'
+    fi
     print_success "Robot registered and config saved to ~/phntm_bridge.yaml"
 fi
 
@@ -107,8 +136,8 @@ print_success "Robot ID: $ROBOT_ID"
 
 print_header "Step 2: Building Docker Image"
 
-print_info "Building Docker image (this may take 3-5 minutes)..."
-if docker compose build; then
+print_info "Building Docker image (this may take a few minutes)..."
+if $DOCKER_COMPOSE build; then
     print_success "Docker image built successfully"
 else
     print_error "Failed to build Docker image"
@@ -118,7 +147,7 @@ fi
 print_header "Step 3: Starting Services"
 
 print_info "Starting phntm_bridge container..."
-if docker compose up -d; then
+if $DOCKER_COMPOSE up -d; then
     print_success "Container started successfully"
 else
     print_error "Failed to start container"
@@ -145,7 +174,7 @@ else
     print_warning "Chat server may not be responding yet. It should start shortly."
 fi
 
-print_header "Setup Complete! 🎉"
+print_header "Setup Complete!"
 
 echo "Your Phantom Bridge Client is now ready to use!"
 echo ""
@@ -155,16 +184,20 @@ echo "Next steps:"
 echo "1. Open your browser and navigate to:"
 echo -e "   ${YELLOW}https://bridge.phntm.io/$ROBOT_ID${NC}"
 echo ""
-echo "2. Check the bridge logs (if needed):"
-echo "   ${YELLOW}docker logs phntm-bridge${NC}"
+echo "2. Chat widgets (Spot, Drone, Operator) are available in the Widgets menu"
+echo "   Each widget supports detection prompts via Grounding DINO"
 echo ""
-echo "3. To stop the bridge:"
-echo "   ${YELLOW}docker compose down${NC}"
+echo "3. Check the bridge logs (if needed):"
+echo -e "   ${YELLOW}docker logs phntm-bridge${NC}"
 echo ""
-echo "4. To restart the bridge:"
-echo "   ${YELLOW}docker compose up -d${NC}"
+echo "4. To stop the bridge:"
+echo -e "   ${YELLOW}$DOCKER_COMPOSE down${NC}"
+echo ""
+echo "5. To restart the bridge:"
+echo -e "   ${YELLOW}$DOCKER_COMPOSE up -d${NC}"
 echo ""
 echo "Configuration file location: ${YELLOW}$HOME/phntm_bridge.yaml${NC}"
+echo "Project directory: ${YELLOW}$SCRIPT_DIR${NC}"
 echo ""
-echo "For more information, see: README.md"
+echo "For more information, see: ${SCRIPT_DIR}/README.md"
 echo ""
