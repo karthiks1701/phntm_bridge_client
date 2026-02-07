@@ -4,7 +4,7 @@ from launch.actions import OpaqueFunction
 from launch_ros.actions import Node
 import os
 
-from launch.actions import (EmitEvent, LogInfo, RegisterEventHandler)
+from launch.actions import (EmitEvent, LogInfo, RegisterEventHandler, SetEnvironmentVariable)
 from launch.event_handlers import (OnProcessExit)
 from launch.events import Shutdown
 
@@ -19,8 +19,8 @@ def launch_setup(context, *args, **kwargs):
     gdb_debugger = LaunchConfiguration("debugger", default="false").perform(context)
     gdb_server = LaunchConfiguration("gdb_server", default="false").perform(context)
     gdb_server_port = LaunchConfiguration("gdb_server_port", default="3000").perform(context)
-    enable_chat_interface = LaunchConfiguration("enable_chat_interface", default="false").perform(context)
-    
+    enable_chat_interface = LaunchConfiguration("enable_chat_interface", default="true").perform(context)
+
     bridge_launch_prefix = ""
     if gdb_debugger == "true":
        bridge_launch_prefix = "gdb -ex run --args"
@@ -35,12 +35,12 @@ def launch_setup(context, *args, **kwargs):
         emulate_tty=True,
         parameters=[bridge_config]
     )
-    
+
     agent_config = os.path.join(
         '/ros2_ws/',
         'phntm_agent_params.yaml'
     )
-    
+
     agent_node = Node(
         package='phntm_agent',
         executable='agent',
@@ -48,8 +48,8 @@ def launch_setup(context, *args, **kwargs):
         emulate_tty=True,
         parameters=[agent_config]
     )
-    
-    # Conditionally include chat interface node
+
+    # Conditionally include chat interface node (FastDDS domain 0, talks to C++ bridge)
     chat_interface_node = None
     if enable_chat_interface == "true":
         chat_interface_node = Node(
@@ -58,11 +58,37 @@ def launch_setup(context, *args, **kwargs):
             output='screen',
             emulate_tty=True,
         )
-    
+
+    # Grounding DINO detection node — runs on CycloneDDS domain 42 for Gazebo camera access
+    # (C++ bridge and chat_interface stay on FastDDS domain 0 for introspection compatibility)
+    # File IPC bridges the DDS/domain gap: prompts via /tmp/dino_prompts.json, results via /tmp/dino_results/
+    grounding_dino_node = Node(
+        package='phntm_bridge',
+        executable='grounding_dino_node.py',
+        output='screen',
+        emulate_tty=True,
+        parameters=[bridge_config],
+        additional_env={
+            'RMW_IMPLEMENTATION': 'rmw_cyclonedds_cpp',
+            'ROS_DOMAIN_ID': '42',
+        },
+    )
+
+    # Camera relay publisher — reads frames from /dev/shm/cam_relay/ (written by DINO node)
+    # and republishes on FastDDS domain 0 so C++ bridge can stream them via WebRTC
+    camera_relay_node = Node(
+        package='phntm_bridge',
+        executable='camera_relay_pub.py',
+        output='screen',
+        emulate_tty=True,
+    )
+
     launch_description = [
         bridge_node,
         agent_node,
-       
+        grounding_dino_node,
+        camera_relay_node,
+
         RegisterEventHandler(
             OnProcessExit(
                 target_action=bridge_node,
@@ -73,12 +99,12 @@ def launch_setup(context, *args, **kwargs):
             )
         )
     ]
-    
+
     if chat_interface_node:
-        launch_description.insert(2, chat_interface_node)
-    
+        launch_description.insert(4, chat_interface_node)
+
     return launch_description
-    
+
 def generate_launch_description():
 
     return LaunchDescription([

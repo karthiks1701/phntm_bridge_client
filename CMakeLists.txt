@@ -187,6 +187,8 @@ install(TARGETS phntm_bridge
 # Install Python scripts
 install(PROGRAMS
   src/chat_interface_node.py
+  src/grounding_dino_node.py
+  src/camera_relay_pub.py
   DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY launch DESTINATION share/${PROJECT_NAME}/)
