@@ -1,7 +1,13 @@
 ARG ROS_DISTRO=humble
-FROM ros:$ROS_DISTRO
+FROM dustynv/ros:$ROS_DISTRO-desktop-l4t-r36.4.0
 
 RUN echo "Building docker image with ROS_DISTRO=$ROS_DISTRO"
+
+RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null \
+    && apt-get update
+
+
 
 RUN apt-get update -y --fix-missing
 RUN apt-get install -y pip wget
@@ -24,6 +30,7 @@ RUN apt install -y gpiod libgpiod-dev
 RUN apt install -y uuid-dev
 RUN apt install -y libcurl4-openssl-dev
 RUN apt install -y ros-$ROS_DISTRO-rmw-cyclonedds-cpp
+RUN apt install -y ros-$ROS_DISTRO-rmw-fastrtps-cpp
 
 WORKDIR /root
 RUN git clone https://github.com/chriskohlhoff/asio.git
@@ -129,12 +136,17 @@ RUN echo 'export PYTHONPATH="/root/ros2_py_venv/lib/python${PYTHON_VERSION_VENV}
 
 # Agent python deps and ROS python libs (used when building packages)
 RUN . /root/ros2_py_venv/bin/activate && \
-    pip install iwlib && \
-    pip install empy catkin_pkg numpy lark && \
+    pip install --upgrade pip setuptools wheel --index-url https://pypi.org/simple && \
+    pip install --index-url https://pypi.org/simple \
+        cffi \
+        iwlib \
+        empy \
+        catkin_pkg \
+        numpy \
+        lark && \
     deactivate
 
 # video enc
-RUN apt-get install -y libopencv-dev
 RUN apt-get install -y libavdevice-dev
 
 # clone and install Phntm Agent
