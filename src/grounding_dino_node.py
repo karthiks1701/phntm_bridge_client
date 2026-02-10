@@ -228,6 +228,11 @@ class GroundingDinoNode(Node):
     def image_callback(self, topic, msg):
         try:
             # Convert ROS Image to cv2 numpy array without cv_bridge
+            # Skip depth images (usually 32FC1 or 16UC1) which are not supported by this model
+            if msg.encoding in ('32FC1', '16UC1', 'mono16'):
+                 # self.get_logger().debug(f'Skipping depth image from {topic} with encoding {msg.encoding}')
+                 return
+
             dtype = np.uint8
             if msg.encoding in ('mono8', '8UC1'):
                 channels = 1
@@ -237,13 +242,15 @@ class GroundingDinoNode(Node):
                 channels = 3
             elif msg.encoding in ('bgra8', '8UC4', 'rgba8'):
                 channels = 4
-            elif msg.encoding in ('mono16', '16UC1'):
-                channels = 1
-                dtype = np.uint16
             else:
+                # self.get_logger().warn(f'Unsupported encoding {msg.encoding} from {topic}, assuming bgr8')
                 channels = 3  # assume bgr8
 
-            img = np.frombuffer(msg.data, dtype=dtype).reshape(msg.height, msg.width, channels)
+            try:
+                img = np.frombuffer(msg.data, dtype=dtype).reshape(msg.height, msg.width, channels)
+            except ValueError:
+                # self.get_logger().warn(f'Failed to reshape image from {topic}: size {len(msg.data)} into ({msg.height}, {msg.width}, {channels})')
+                return
 
             # Convert to BGR if needed
             if msg.encoding == 'rgb8':

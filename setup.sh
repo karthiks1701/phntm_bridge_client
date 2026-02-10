@@ -134,20 +134,41 @@ fi
 
 print_success "Robot ID: $ROBOT_ID"
 
-print_header "Step 2: Building Docker Image"
+print_header "Step 2: Architecture Detection"
 
-print_info "Building Docker image (this may take a few minutes)..."
-if $DOCKER_COMPOSE build; then
+ARCH=$(uname -m)
+if [ "$ARCH" = "x86_64" ]; then
+    print_info "Detected x86_64 architecture."
+    export DOCKERFILE="Dockerfile.x64"
+    export IMAGE_TAG="humble-x86"
+elif [ "$ARCH" = "aarch64" ]; then
+    print_info "Detected ARM64 architecture (likely Jetson)."
+    export DOCKERFILE="Dockerfile"
+    export IMAGE_TAG="humble-arm"
+else
+    print_warning "Unknown architecture: $ARCH. Defaulting to 'x86' configuration."
+    export DOCKERFILE="Dockerfile.x64"
+    export IMAGE_TAG="humble-x86"
+fi
+
+print_header "Step 3: Building Docker Image"
+
+print_info "Building Docker image using $DOCKERFILE (tag: $IMAGE_TAG)..."
+# Cleanup old containers first to avoid name conflicts
+$DOCKER_COMPOSE down --remove-orphans > /dev/null 2>&1 || true
+
+# Explicitly pass build args to ensure variable substitution works
+if DOCKERFILE=$DOCKERFILE IMAGE_TAG=$IMAGE_TAG $DOCKER_COMPOSE build; then
     print_success "Docker image built successfully"
 else
     print_error "Failed to build Docker image"
     exit 1
 fi
 
-print_header "Step 3: Starting Services"
+print_header "Step 4: Starting Services"
 
 print_info "Starting phntm_bridge container..."
-if $DOCKER_COMPOSE up -d; then
+if DOCKERFILE=$DOCKERFILE IMAGE_TAG=$IMAGE_TAG $DOCKER_COMPOSE up -d; then
     print_success "Container started successfully"
 else
     print_error "Failed to start container"

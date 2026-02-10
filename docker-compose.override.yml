@@ -1,11 +1,11 @@
 services:
   phntm_bridge:
-    image: phntm/bridge:humble
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: ${DOCKERFILE:-Dockerfile}
       args:
         ROS_DISTRO: humble
+    image: phntm/bridge:${IMAGE_TAG:-humble}
     container_name: phntm-bridge
     hostname: phntm-bridge.local
     restart: unless-stopped
