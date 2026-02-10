@@ -7,7 +7,7 @@ const path = require('path');
 const app = express();
 const HTTPS_PORT = process.env.CHAT_HTTPS_PORT || 3443;
 const HTTP_PORT = process.env.CHAT_HTTP_PORT || 3080;
-const HOST = process.env.CHAT_HOST || 'localhost';
+const HOST = process.env.CHAT_HOST || '0.0.0.0';
 
 // Enable CORS for all routes
 app.use((req, res, next) => {

@@ -7,6 +7,7 @@ const path = require('path');
 const app = express();
 const HTTPS_PORT = 3443;
 const HTTP_PORT = 3080;
+const HOST = process.env.CHAT_HOST;
 
 // Enable CORS for all routes
 app.use((req, res, next) => {
@@ -53,9 +54,9 @@ if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
     options.key = fs.readFileSync(keyPath);
     
     // Start HTTPS server
-    https.createServer(options, app).listen(HTTPS_PORT, () => {
-        console.log(`Chat widgets server running on https://localhost:${HTTPS_PORT}`);
-        console.log(`Access files at: https://localhost:${HTTPS_PORT}/chat-widgets/`);
+    https.createServer(options, app).listen(HTTPS_PORT, HOST, () => {
+        console.log(`Chat widgets server running on https://${HOST}:${HTTPS_PORT}`);
+        console.log(`Access files at: https://${HOST}:${HTTPS_PORT}/chat-widgets/`);
     });
 } else {
     console.log('WARNING: Self-signed SSL certificates not found!');
@@ -64,9 +65,9 @@ if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
 }
 
 // Always start HTTP server as well for cross-origin compatibility
-http.createServer(app).listen(HTTP_PORT, () => {
-    console.log(`Chat widgets HTTP server running on http://localhost:${HTTP_PORT}`);
-    console.log(`Access files at: http://localhost:${HTTP_PORT}/chat-widgets/`);
+http.createServer(app).listen(HTTP_PORT, HOST, () => {
+    console.log(`Chat widgets HTTP server running on http://${HOST}:${HTTP_PORT}`);
+    console.log(`Access files at: http://${HOST}:${HTTP_PORT}/chat-widgets/`);
     console.log('');
     console.log('For phntm_bridge.yaml, use HTTP URLs (more reliable for cross-origin):');
     console.log('  ui_custom_includes_js:');
