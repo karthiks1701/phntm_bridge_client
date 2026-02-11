@@ -25,9 +25,24 @@ class CameraRelayPub(Node):
         # Map: safe_name -> (publisher, last_mtime)
         self.cam_pubs = {}
 
+        # Clean up stale relay files from previous runs
+        self._cleanup_relay_dir()
+
         # Poll for new frames at ~5 Hz
         self.timer = self.create_timer(0.2, self.poll_frames)
         self.get_logger().info(f'Camera relay publisher ready (reading from {CAM_RELAY_DIR})')
+
+    def _cleanup_relay_dir(self):
+        """Remove stale .bin files from previous runs."""
+        try:
+            for filename in os.listdir(CAM_RELAY_DIR):
+                filepath = os.path.join(CAM_RELAY_DIR, filename)
+                try:
+                    os.remove(filepath)
+                except OSError:
+                    pass
+        except OSError:
+            pass
 
     def poll_frames(self):
         try:
@@ -110,23 +125,31 @@ class CameraRelayPub(Node):
             'spot_camera_thermal_rgb': '/spot/camera/thermal_rgb',
         }
 
+        topic = None
         if safe_name in known_patterns:
-            return known_patterns[safe_name]
+            topic = known_patterns[safe_name]
+        else:
+            # Check topic_names.json from the DINO node side
+            names_file = os.path.join(CAM_RELAY_DIR, 'topic_names.json')
+            if os.path.exists(names_file):
+                try:
+                    import json
+                    with open(names_file, 'r') as f:
+                        mapping = json.load(f)
+                    if safe_name in mapping:
+                        topic = mapping[safe_name]
+                except Exception:
+                    pass
 
-        # Fallback: write a topic_names.json from the DINO node side
-        names_file = os.path.join(CAM_RELAY_DIR, 'topic_names.json')
-        if os.path.exists(names_file):
-            try:
-                import json
-                with open(names_file, 'r') as f:
-                    mapping = json.load(f)
-                if safe_name in mapping:
-                    return mapping[safe_name]
-            except Exception:
-                pass
+        if not topic:
+            # Last resort: replace _ with / and prepend /
+            topic = '/' + safe_name.replace('_', '/')
 
-        # Last resort: replace _ with / and prepend /
-        return '/' + safe_name.replace('_', '/')
+        # Always prepend /relay to avoid collision with original topics
+        if not topic.startswith('/relay'):
+            topic = f'/relay{topic}'
+        
+        return topic
 
 
 def main():

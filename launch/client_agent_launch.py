@@ -68,10 +68,10 @@ def launch_setup(context, *args, **kwargs):
         output='screen',
         emulate_tty=True,
         parameters=[bridge_config],
-        additional_env={
-            'RMW_IMPLEMENTATION': 'rmw_cyclonedds_cpp',
-            'ROS_DOMAIN_ID': '42',
-        },
+        # additional_env={
+        #     'RMW_IMPLEMENTATION': 'rmw_cyclonedds_cpp',
+        #     'ROS_DOMAIN_ID': '42',
+        # },
     )
 
     # Camera relay publisher — reads frames from /dev/shm/cam_relay/ (written by DINO node)

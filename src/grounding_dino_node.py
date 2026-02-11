@@ -198,6 +198,14 @@ class GroundingDinoNode(Node):
                 except re.error:
                     pass
 
+            # Skip topics published by camera_relay to prevent feedback loop
+            # (relay republishes frames we write, so subscribing back creates duplicates)
+            pubs_info = self.get_publishers_info_by_topic(topic_name)
+            relay_names = {'camera_relay', 'grounding_dino'}
+            publisher_nodes = {info.node_name for info in pubs_info}
+            if publisher_nodes and publisher_nodes.issubset(relay_names):
+                continue
+
             self.get_logger().info(f'Subscribing to camera topic: {topic_name}')
             sub = self.create_subscription(
                 Image, topic_name,
