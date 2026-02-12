@@ -83,17 +83,19 @@ ENV ROS_WS=/ros2_ws
 RUN mkdir -p $ROS_WS/src
 
 # generate entrypoint script
-RUN echo '#!/bin/bash \n \
-set -e \n \
-\n \
-# setup ros environment \n \
-source "/opt/ros/'$ROS_DISTRO'/setup.bash" \n \
-export PYTHON_VERSION_VENV=$(python3 -c '"'"'import sys; print(".".join(map(str, sys.version_info[:2])))'"'"') \n \
-export PATH="/root/ros2_py_venv/bin:$PATH" \n \
-export PYTHONPATH="/root/ros2_py_venv/lib/python${PYTHON_VERSION_VENV}/site-packages:${PYTHONPATH:-}" \n \
-test -f "/ros2_ws/install/setup.bash" && source "/ros2_ws/install/setup.bash" \n \
-\n \
-exec "$@"' > /ros_entrypoint.sh
+COPY <<'ENTRYPOINT_EOF' /ros_entrypoint.sh
+#!/bin/bash
+set -e
+
+# setup ros environment
+source "/opt/ros/humble/setup.bash"
+export PYTHON_VERSION_VENV=$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
+export PATH="/root/ros2_py_venv/bin:$PATH"
+export PYTHONPATH="/root/ros2_py_venv/lib/python${PYTHON_VERSION_VENV}/site-packages:${PYTHONPATH:-}"
+test -f "/ros2_ws/install/setup.bash" && source "/ros2_ws/install/setup.bash"
+
+exec "$@"
+ENTRYPOINT_EOF
 
 RUN chmod a+x /ros_entrypoint.sh
 
@@ -146,6 +148,12 @@ RUN . /root/ros2_py_venv/bin/activate && \
         lark && \
     deactivate
 
+# Grounding DINO deps (CPU-only PyTorch for zero-shot detection)
+RUN . /root/ros2_py_venv/bin/activate && \
+    pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir --index-url https://pypi.org/simple transformers opencv-python-headless && \
+    deactivate
+
 # video enc
 RUN apt-get install -y libavdevice-dev
 
@@ -164,11 +172,43 @@ RUN . /opt/ros/$ROS_DISTRO/setup.sh && \
     rosdep install -i --from-path src/phntm_bridge --rosdistro $ROS_DISTRO -y && \
     colcon build --symlink-install --packages-select phntm_bridge
 
+# Install Node.js and OpenSSL for chat widgets server
+RUN apt-get update && apt-get install -y curl openssl && \
+    curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
+    apt-get install -y nodejs
+
+# Install chat widgets server dependencies
+WORKDIR $ROS_WS/src/phntm_bridge/src/chat_widgets
+RUN npm install
+
+# Create startup wrapper script that runs both Bridge and chat server
+COPY <<'ENTRYPOINT_EOF' /phntm_bridge_entrypoint.sh
+#!/bin/bash
+set -e
+source "/opt/ros/humble/setup.bash"
+export PYTHON_VERSION_VENV=$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
+export PATH="/root/ros2_py_venv/bin:$PATH"
+export PYTHONPATH="/root/ros2_py_venv/lib/python${PYTHON_VERSION_VENV}/site-packages:${PYTHONPATH:-}"
+test -f "/ros2_ws/install/setup.bash" && source "/ros2_ws/install/setup.bash"
+
+# Start chat widgets server in background
+echo "Starting chat widgets server..."
+cd /ros2_ws/src/phntm_bridge/src/chat_widgets &&
+CHAT_HOST=0.0.0.0 CHAT_HTTP_PORT=3080 CHAT_HTTPS_PORT=3443 node server.js > /tmp/chat_server.log 2>&1 &
+CHAT_PID=$!
+echo "Chat server started with PID $CHAT_PID"
+
+# Run main command (ROS2 launch)
+exec "$@"
+ENTRYPOINT_EOF
+
+RUN chmod a+x /phntm_bridge_entrypoint.sh
+
 # pimp up prompt with hostame and color
 RUN echo "PS1='\${debian_chroot:+(\$debian_chroot)}\\[\\033[01;35m\\]\\u@\\h\\[\\033[00m\\] \\[\\033[01;34m\\]\\w\\[\\033[00m\\] '"  >> /root/.bashrc
 RUN echo '# } PhntmBridge' >> /root/.bashrc
 
 WORKDIR $ROS_WS
 
-ENTRYPOINT ["/ros_entrypoint.sh"]
+ENTRYPOINT ["/phntm_bridge_entrypoint.sh"]
 CMD [ "bash" ]

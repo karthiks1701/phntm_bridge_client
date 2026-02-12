@@ -184,6 +184,13 @@ link_directories(${GPIOD_LIBRARY_DIRS})
 install(TARGETS phntm_bridge
   DESTINATION lib/${PROJECT_NAME})
 
+# Install Python scripts
+install(PROGRAMS
+  src/chat_interface_node.py
+  src/grounding_dino_node.py
+  src/camera_relay_pub.py
+  DESTINATION lib/${PROJECT_NAME})
+
 install(DIRECTORY launch DESTINATION share/${PROJECT_NAME}/)
 
 if(BUILD_TESTING)

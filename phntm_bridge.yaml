@@ -83,6 +83,23 @@
     docker_monitor_topic: '/docker_info' # produced by Agent
     enable_docker_control: True # Docker control via Agent
 
+    ## Custom UI Extensions - Chat Widgets
+    ## Served locally from the phntm_bridge container on port 3080
+    ## Using protocol-relative URLs to work with both HTTP and HTTPS
+    ui_custom_includes_js:
+      - http://localhost:3080/chat-widgets/chat-spot-widget.js
+      - http://localhost:3080/chat-widgets/chat-drone-widget.js
+      - http://localhost:3080/chat-widgets/chat-operator-widget.js
+    
+    ui_custom_includes_css:
+      - http://localhost:3080/chat-widgets/chat-widgets.css
+
+    ## Camera topics for each entity (used by Grounding DINO detection)
+    ## Spot cameras are auto-discovered from CycloneDDS domain 42
+    ## Set drone/operator camera topics when available
+    # drone_camera_topic: '/drone/camera/image_raw'
+    # operator_camera_topic: '/operator/camera/image_raw'
+
     ## User input config
     input_drivers: [ 'JoyInputDriver', 'TwistInputDriver' ] # enabled input drivers
     # input_defaults: /ros2_ws/phntm_input_config.json # path to input config file mounted inside the container

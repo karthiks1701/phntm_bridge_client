@@ -1,0 +1,25 @@
+services:
+  phntm_bridge:
+    build:
+      context: .
+      dockerfile: ${DOCKERFILE:-Dockerfile}
+      args:
+        ROS_DISTRO: humble
+    image: phntm/bridge:${IMAGE_TAG:-humble}
+    container_name: phntm-bridge
+    hostname: phntm-bridge.local
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+    ipc: host
+    volumes:
+      - .:/ros2_ws/src/phntm_bridge
+      - /ros2_ws/src/phntm_bridge/src/chat_widgets/node_modules
+      - ./phntm_bridge.yaml:/ros2_ws/phntm_bridge_params.yaml
+      - ./phntm_bridge.yaml:/ros2_ws/phntm_agent_params.yaml
+      - ./detections:/ros2_ws/detections
+      - /var/run:/host_run
+      - /tmp:/tmp
+    devices:
+      - /dev:/dev
+    command: ros2 launch phntm_bridge client_agent_launch.py
